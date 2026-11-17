@@ -38,6 +38,14 @@ const defaultDashboard = {
   }
 };
 
+const navItems = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'game', label: 'Aviator' },
+  { id: 'predictor', label: 'Predictor' },
+  { id: 'wallet', label: 'Wallet' },
+  { id: 'admin', label: 'Admin' }
+];
+
 function App() {
   const [dashboard, setDashboard] = useState(defaultDashboard);
   const [view, setView] = useState('dashboard');
@@ -191,14 +199,6 @@ function App() {
     }
   };
 
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'game', label: 'Aviator' },
-    { id: 'predictor', label: 'Predictor' },
-    { id: 'wallet', label: 'Wallet' },
-    { id: 'admin', label: 'Admin' }
-  ];
-
   const renderContent = () => {
     if (view === 'game') {
       return (
@@ -228,8 +228,8 @@ function App() {
           </div>
 
           <div className="cta-stack">
-            <button className="primary-btn" onClick={handlePlaceBet}>Place Bet</button>
-            <button className="secondary-btn" onClick={handleCashout}>Cash Out</button>
+            <button type="button" className="primary-btn" onClick={handlePlaceBet}>Place Bet</button>
+            <button type="button" className="secondary-btn" onClick={handleCashout}>Cash Out</button>
           </div>
         </section>
       );
@@ -289,12 +289,12 @@ function App() {
               Deposit amount
               <input type="number" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} />
             </label>
-            <button className="primary-btn" onClick={handleDeposit}>Initiate STK Push</button>
+            <button type="button" className="primary-btn" onClick={handleDeposit}>Initiate STK Push</button>
             <label>
               Withdraw amount
               <input type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value)} />
             </label>
-            <button className="secondary-btn" onClick={handleWithdraw}>Request Withdrawal</button>
+            <button type="button" className="secondary-btn" onClick={handleWithdraw}>Request Withdrawal</button>
           </div>
           <div className="activity-box">
             <h4>Recent Transactions</h4>
@@ -357,8 +357,8 @@ function App() {
             <strong>KES {dashboard.user.wallet.balance.toLocaleString()}</strong>
             <small>Betting Balance: KES {dashboard.user.wallet.bettingBalance.toLocaleString()}</small>
             <div className="key-actions">
-              <button onClick={() => setView('wallet')}>Deposit</button>
-              <button className="secondary" onClick={() => setView('wallet')}>Withdraw</button>
+              <button type="button" onClick={() => setView('wallet')}>Deposit</button>
+              <button type="button" className="secondary" onClick={() => setView('wallet')}>Withdraw</button>
             </div>
           </div>
         </section>
@@ -387,8 +387,8 @@ function App() {
               </label>
             </div>
             <div className="cta-stack">
-              <button className="primary-btn" onClick={handlePlaceBet}>Place Bet</button>
-              <button className="secondary-btn" onClick={handleCashout}>Cash Out</button>
+              <button type="button" className="primary-btn" onClick={handlePlaceBet}>Place Bet</button>
+              <button type="button" className="secondary-btn" onClick={handleCashout}>Cash Out</button>
             </div>
           </section>
 
@@ -434,7 +434,7 @@ function App() {
                 Deposit amount
                 <input type="number" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} />
               </label>
-              <button className="primary-btn" onClick={handleDeposit}>Initiate STK Push</button>
+              <button type="button" className="primary-btn" onClick={handleDeposit}>Initiate STK Push</button>
             </div>
           </section>
 
@@ -473,13 +473,18 @@ function App() {
 
         <nav className="nav">
           {navItems.map(item => (
-            <button key={item.id} className={`nav-btn ${view === item.id ? 'active' : ''}`} onClick={() => setView(item.id)}>
+            <button
+              key={item.id}
+              type="button"
+              className={`nav-btn ${view === item.id ? 'active' : ''}`}
+              onClick={() => setView(item.id)}
+            >
               {item.label}
             </button>
           ))}
         </nav>
 
-        <button className="ghost-btn">Logout</button>
+        <button type="button" className="ghost-btn">Logout</button>
       </header>
 
       <main className="dashboard">
@@ -492,8 +497,8 @@ function App() {
           </div>
 
           <div className="auth-toggle">
-            <button className={authMode === 'login' ? 'active' : ''} onClick={() => setAuthMode('login')}>Login</button>
-            <button className={authMode === 'register' ? 'active' : ''} onClick={() => setAuthMode('register')}>Register</button>
+            <button type="button" className={authMode === 'login' ? 'active' : ''} onClick={() => setAuthMode('login')}>Login</button>
+            <button type="button" className={authMode === 'register' ? 'active' : ''} onClick={() => setAuthMode('register')}>Register</button>
           </div>
 
           <div className="field-stack">
@@ -520,7 +525,7 @@ function App() {
               <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
             </label>
 
-            <button className="primary-btn" onClick={handleAuth}>{authMode === 'login' ? 'Login' : 'Register'}</button>
+            <button type="button" className="primary-btn" onClick={handleAuth}>{authMode === 'login' ? 'Login' : 'Register'}</button>
           </div>
         </section>
       </main>
