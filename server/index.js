@@ -1,446 +1,199 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
+import { randomInt, randomUUID } from 'node:crypto';
 
 dotenv.config();
-
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
+const ROUND_WAIT_MS = 8000;
+const ROUND_BREAK_MS = 3500;
+const CRASH_CHECK_MS = 50;
+const DEMO_USER_ID = 'demo-player';
 
-app.use(cors());
-app.use(express.json());
+app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));
+app.use(express.json({ limit: '16kb' }));
+app.disable('x-powered-by');
 
-const createDemoUser = async () => ({
-  id: 'u_demo_1',
-  name: 'Demo Player',
-  email: 'demo@skywin.app',
-  phone: '+254700000001',
-  passwordHash: await bcrypt.hash('Password123!', 10),
-  role: 'user',
-  wallet: {
-    balance: 24500,
-    bettingBalance: 5000,
-    pendingWithdrawals: 0
-  },
-  createdAt: new Date().toISOString()
-});
-
+// A single-player, volatile practice simulation. These points have no cash value.
 const state = {
-  users: [],
-  transactions: [
-    {
-      id: 'tx_1',
-      userId: 'u_demo_1',
-      type: 'deposit',
-      amount: 2000,
-      status: 'completed',
-      reference: 'DEP-202611170001',
-      method: 'M-Pesa',
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: 'tx_2',
-      userId: 'u_demo_1',
-      type: 'bet',
-      amount: 250,
-      status: 'settled',
-      reference: 'BET-202611170002',
-      method: 'Bet',
-      createdAt: new Date().toISOString()
-    }
-  ],
+  user: { id: DEMO_USER_ID, name: 'Demo Player', points: 10000 },
+  round: null,
+  history: [],
   bets: [],
-  payments: [],
-  rounds: [
-    {
-      id: 'r_cur_01',
-      roundNumber: 4021,
-      status: 'live',
-      multiplier: 1.87,
-      countdown: 12,
-      crashAt: 4.61,
-      updatedAt: new Date().toISOString()
-    }
-  ],
-  admin: {
-    totalUsers: 1284,
-    activePlayers: 764,
-    pendingWithdrawals: 7
-  }
+  transactions: []
 };
 
-const sanitizeUser = (user) => ({
-  id: user.id,
-  name: user.name,
-  email: user.email,
-  phone: user.phone,
-  role: user.role,
-  wallet: {
-    balance: user.wallet.balance,
-    bettingBalance: user.wallet.bettingBalance,
-    pendingWithdrawals: user.wallet.pendingWithdrawals
-  }
-});
-
-const buildRoundHistory = () => [
-  { id: 4012, multiplier: 1.45, createdAt: '2026-11-17T08:10:00Z' },
-  { id: 4013, multiplier: 2.31, createdAt: '2026-11-17T08:11:00Z' },
-  { id: 4014, multiplier: 4.25, createdAt: '2026-11-17T08:12:00Z' },
-  { id: 4015, multiplier: 1.87, createdAt: '2026-11-17T08:13:00Z' },
-  { id: 4016, multiplier: 6.22, createdAt: '2026-11-17T08:14:00Z' },
-  { id: 4017, multiplier: 2.91, createdAt: '2026-11-17T08:15:00Z' },
-  { id: 4018, multiplier: 7.14, createdAt: '2026-11-17T08:16:00Z' },
-  { id: 4019, multiplier: 1.9, createdAt: '2026-11-17T08:17:00Z' },
-  { id: 4020, multiplier: 5.42, createdAt: '2026-11-17T08:18:00Z' },
-  { id: 4021, multiplier: 3.74, createdAt: '2026-11-17T08:19:00Z' }
-];
-
-const predictorStats = () => {
-  const values = buildRoundHistory().map(item => item.multiplier);
-  const sorted = [...values].sort((a, b) => a - b);
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const median = sorted[Math.floor(sorted.length / 2)];
-  const highest = Math.max(...values);
-  const lowest = Math.min(...values);
-
+function makeRound(number) {
   return {
-    history: buildRoundHistory(),
-    last10: values.slice(-10),
-    last20: values.slice(-20),
-    last50: values.slice(-50),
+    id: randomUUID(),
+    number,
+    status: 'waiting',
+    multiplier: 1,
+    crashAt: Number((randomInt(101, 3001) / 100).toFixed(2)),
+    createdAt: new Date().toISOString(),
+    phaseStartedAt: Date.now()
+  };
+}
+
+state.round = makeRound(1);
+
+function publicRound() {
+  const { crashAt, ...round } = state.round;
+  return { ...round, crashAt: round.status === 'crashed' ? crashAt : undefined };
+}
+
+function addTransaction(type, amount, reference, status = 'completed') {
+  state.transactions.unshift({
+    id: randomUUID(),
+    type,
+    amount,
+    reference,
+    status,
+    createdAt: new Date().toISOString()
+  });
+  state.transactions = state.transactions.slice(0, 100);
+}
+
+function settleCrash() {
+  const round = state.round;
+  round.status = 'crashed';
+  round.multiplier = round.crashAt;
+  round.crashedAt = new Date().toISOString();
+  state.history.unshift({
+    id: round.id,
+    number: round.number,
+    multiplier: round.crashAt,
+    createdAt: round.crashedAt
+  });
+  state.history = state.history.slice(0, 100);
+
+  for (const bet of state.bets) {
+    if (bet.roundId === round.id && bet.status === 'active') {
+      bet.status = 'lost';
+      addTransaction('practice loss', bet.amount, `BET-${bet.id}`);
+    }
+  }
+}
+
+setInterval(() => {
+  const round = state.round;
+  const elapsed = Date.now() - round.phaseStartedAt;
+
+  if (round.status === 'waiting' && elapsed >= ROUND_WAIT_MS) {
+    round.status = 'flying';
+    round.phaseStartedAt = Date.now();
+  } else if (round.status === 'flying') {
+    const seconds = (Date.now() - round.phaseStartedAt) / 1000;
+    const multiplier = Number(Math.exp(seconds * 0.12).toFixed(2));
+    if (multiplier >= round.crashAt) settleCrash();
+    else round.multiplier = multiplier;
+  } else if (round.status === 'crashed' && elapsed >= ROUND_BREAK_MS) {
+    state.round = makeRound(round.number + 1);
+  }
+}, CRASH_CHECK_MS).unref();
+
+function getPredictor() {
+  const values = state.history.map(item => item.multiplier);
+  if (!values.length) {
+    return {
+      history: [], average: null, median: null, highest: null, lowest: null,
+      volatility: null,
+      message: 'No completed demo rounds yet. Historical statistics are descriptive only and do not predict future outcomes.'
+    };
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+  return {
+    history: state.history.slice(0, 50),
+    last10: values.slice(0, 10),
+    last20: values.slice(0, 20),
+    last50: values.slice(0, 50),
     average: Number(average.toFixed(2)),
     median: Number(median.toFixed(2)),
-    highest: Number(highest.toFixed(2)),
-    lowest: Number(lowest.toFixed(2)),
-    volatility: Number(((highest - lowest) / average).toFixed(2)),
-    message:
-      'Aviator outcomes are random. Historical data can show frequency patterns, but it cannot guarantee or reliably predict the next crash multiplier.'
+    highest: Math.max(...values),
+    lowest: Math.min(...values),
+    volatility: Number((Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0) / values.length)).toFixed(2)),
+    message: 'Demo history is descriptive only. Each round is independently generated; historical outcomes cannot predict or guarantee a future crash point.'
   };
-};
+}
 
-const ensureDemoUser = async () => {
-  if (state.users.length === 0) {
-    state.users.push(await createDemoUser());
-  }
-};
-
-app.get('/api/health', async (req, res) => {
-  await ensureDemoUser();
-  res.json({ ok: true, app: 'SKYWIN', mode: 'demo', status: 'online' });
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, app: 'SKYWIN', mode: 'practice-only', status: 'online' });
 });
 
-app.post('/api/auth/register', async (req, res) => {
-  await ensureDemoUser();
-  const { name, email, phone, password } = req.body || {};
-
-  if (!name || !email || !phone || !password) {
-    return res.status(400).json({ error: 'Missing required registration fields' });
-  }
-
-  const exists = state.users.some(
-    user => user.email.toLowerCase() === String(email).toLowerCase() || user.phone === phone
-  );
-
-  if (exists) {
-    return res.status(409).json({ error: 'User already exists' });
-  }
-
-  const user = {
-    id: `u_${uuidv4()}`,
-    name,
-    email,
-    phone,
-    passwordHash: await bcrypt.hash(password, 10),
-    role: 'user',
-    wallet: {
-      balance: 0,
-      bettingBalance: 0,
-      pendingWithdrawals: 0
-    },
-    createdAt: new Date().toISOString()
-  };
-
-  state.users.push(user);
-  return res.status(201).json({ message: 'Registration successful', user: sanitizeUser(user) });
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  await ensureDemoUser();
-  const { email, password } = req.body || {};
-
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
-  }
-
-  const user = state.users.find(
-    item => item.email.toLowerCase() === String(email).toLowerCase()
-  );
-
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid email or password' });
-  }
-
-  const matches = await bcrypt.compare(password, user.passwordHash);
-  if (!matches) {
-    return res.status(401).json({ error: 'Invalid email or password' });
-  }
-
-  return res.json({ message: 'Login successful', user: sanitizeUser(user) });
-});
-
-app.get('/api/dashboard', async (req, res) => {
-  await ensureDemoUser();
-  const user = state.users[0];
-
+app.get('/api/dashboard', (req, res) => {
   res.json({
-    user: sanitizeUser(user),
-    currentRound: state.rounds[0],
-    predictor: predictorStats(),
-    transactions: state.transactions.slice(0, 6),
-    admin: state.admin
+    mode: 'practice-only',
+    user: { id: state.user.id, name: state.user.name, points: state.user.points },
+    currentRound: publicRound(),
+    predictor: getPredictor(),
+    bets: state.bets.slice(0, 20).map(({ id, amount, status, roundId, payout, cashoutAt }) => ({ id, amount, status, roundId, payout, cashoutAt })),
+    transactions: state.transactions.slice(0, 10)
   });
 });
 
-app.get('/api/predictor', async (req, res) => {
-  await ensureDemoUser();
-  res.json(predictorStats());
+app.get('/api/game/rounds', (req, res) => {
+  res.json({ current: publicRound(), history: state.history.slice(0, 50) });
 });
 
-app.get('/api/admin/overview', async (req, res) => {
-  await ensureDemoUser();
-  res.json({
-    users: state.admin.totalUsers,
-    activePlayers: state.admin.activePlayers,
-    pendingWithdrawals: state.admin.pendingWithdrawals,
-    recentActivity: [
-      { id: 1, label: 'Wallet top-up', value: 'KES 18,500', time: '2 mins ago' },
-      { id: 2, label: 'Withdrawal review', value: '6 pending', time: '12 mins ago' },
-      { id: 3, label: 'New sign-up', value: '21 new users', time: '30 mins ago' }
-    ]
-  });
-});
-
-app.get('/api/game/rounds', async (req, res) => {
-  await ensureDemoUser();
-  res.json({ current: state.rounds[0], history: buildRoundHistory() });
-});
-
-app.post('/api/game/bet', async (req, res) => {
-  await ensureDemoUser();
-  const { userId, amount, autoCashout, predictedMultiplier } = req.body || {};
-
-  if (!userId || !amount || Number(amount) <= 0) {
-    return res.status(400).json({ error: 'Invalid bet payload' });
+app.post('/api/game/bet', (req, res) => {
+  const amount = Number(req.body?.amount);
+  if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1000) {
+    return res.status(400).json({ error: 'Practice bets must be a whole number from 1 to 1,000 points.' });
+  }
+  if (state.round.status !== 'waiting') {
+    return res.status(409).json({ error: 'Bets are accepted only during the round countdown.' });
+  }
+  if (state.user.points < amount) {
+    return res.status(400).json({ error: 'Not enough demo points.' });
+  }
+  if (state.bets.some(bet => bet.roundId === state.round.id && bet.status === 'active')) {
+    return res.status(409).json({ error: 'One practice bet per round is allowed.' });
   }
 
-  const user = state.users.find(u => u.id === userId);
-  if (!user) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-
-  const value = Number(amount);
-  if (user.wallet.balance < value) {
-    return res.status(400).json({ error: 'Insufficient wallet balance' });
-  }
-
-  user.wallet.balance -= value;
-  user.wallet.bettingBalance += value;
-
+  state.user.points -= amount;
   const bet = {
-    id: `bet_${uuidv4()}`,
-    userId,
-    amount: value,
-    autoCashout: autoCashout ? Number(autoCashout) : null,
-    predictedMultiplier: predictedMultiplier ? Number(predictedMultiplier) : null,
+    id: randomUUID(),
+    roundId: state.round.id,
+    amount,
     status: 'active',
-    round: state.rounds[0]?.id || 'r_demo',
     createdAt: new Date().toISOString()
   };
-
   state.bets.unshift(bet);
-
-  return res.status(201).json({ message: 'Bet placed successfully', bet });
+  addTransaction('practice bet', -amount, `BET-${bet.id}`);
+  res.status(201).json({ bet: { id: bet.id, amount: bet.amount, status: bet.status, roundId: bet.roundId } });
 });
 
-app.post('/api/game/cashout', async (req, res) => {
-  await ensureDemoUser();
-  const { userId, betId, currentMultiplier } = req.body || {};
-
-  if (!userId || !betId || !currentMultiplier) {
-    return res.status(400).json({ error: 'Cash-out requires userId, betId, and currentMultiplier' });
+app.post('/api/game/cashout', (req, res) => {
+  const bet = state.bets.find(item => item.id === req.body?.betId);
+  if (!bet || bet.status !== 'active') {
+    return res.status(404).json({ error: 'Active practice bet not found.' });
+  }
+  if (bet.roundId !== state.round.id || state.round.status !== 'flying') {
+    return res.status(409).json({ error: 'Cash-out is available only while your round is flying.' });
   }
 
-  const bet = state.bets.find(
-    item => item.id === betId && item.userId === userId && item.status === 'active'
-  );
-
-  if (!bet) {
-    return res.status(404).json({ error: 'Active bet not found' });
-  }
-
-  const user = state.users.find(u => u.id === userId);
-  if (!user) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-
-  const payout = Number((bet.amount * Number(currentMultiplier)).toFixed(2));
-  user.wallet.balance += payout;
-  user.wallet.bettingBalance = Math.max(0, user.wallet.bettingBalance - bet.amount);
+  // Multiplier and payout are calculated exclusively from server game state.
+  const multiplier = state.round.multiplier;
+  const payout = Math.floor(bet.amount * multiplier * 100) / 100;
   bet.status = 'cashed_out';
   bet.payout = payout;
-
-  state.transactions.unshift({
-    id: `tx_${uuidv4()}`,
-    userId,
-    type: 'cashout',
-    amount: payout,
-    status: 'completed',
-    reference: `CASH-${Date.now()}`,
-    method: 'Cashout',
-    createdAt: new Date().toISOString()
-  });
-
-  return res.json({ success: true, message: 'Cash-out processed', payout });
+  bet.cashoutAt = multiplier;
+  state.user.points = Number((state.user.points + payout).toFixed(2));
+  addTransaction('practice payout', payout, `CASH-${bet.id}`);
+  res.json({ bet: { id: bet.id, status: bet.status, payout, cashoutAt: multiplier }, points: state.user.points });
 });
 
-app.get('/api/wallet/history', async (req, res) => {
-  await ensureDemoUser();
-  res.json({ transactions: state.transactions });
-});
+app.get('/api/predictor', (req, res) => res.json(getPredictor()));
 
-app.post('/api/wallet/deposit', async (req, res) => {
-  await ensureDemoUser();
-  const { amount, method = 'M-Pesa', phone } = req.body || {};
+// Real-money features are deliberately unavailable in this practice build.
+for (const path of ['/api/mpesa/initiate', '/api/mpesa/callback', '/api/wallet/deposit', '/api/wallet/withdraw']) {
+  app.all(path, (req, res) => res.status(410).json({
+    error: 'Unavailable: this SKYWIN build is practice-only and does not process payments or withdrawals.'
+  }));
+}
 
-  if (!amount || Number(amount) <= 0) {
-    return res.status(400).json({ error: 'Invalid deposit amount' });
-  }
-
-  const user = state.users[0];
-  const tx = {
-    id: `tx_${uuidv4()}`,
-    userId: user.id,
-    type: 'deposit',
-    amount: Number(amount),
-    status: 'pending_verification',
-    reference: `DEP-${Date.now()}`,
-    method,
-    phone,
-    createdAt: new Date().toISOString()
-  };
-
-  state.transactions.unshift(tx);
-  return res.status(201).json({ message: 'Deposit initiated', transaction: tx });
-});
-
-app.post('/api/mpesa/initiate', async (req, res) => {
-  await ensureDemoUser();
-  const { amount, phone } = req.body || {};
-
-  if (!amount || !phone) {
-    return res.status(400).json({ error: 'Amount and phone are required' });
-  }
-
-  const payment = {
-    id: `pay_${uuidv4()}`,
-    type: 'stk_push',
-    amount: Number(amount),
-    phone,
-    reference: `MPESA-${Date.now()}`,
-    status: 'initiated',
-    result: null,
-    createdAt: new Date().toISOString()
-  };
-
-  state.payments.push(payment);
-
-  return res.json({
-    success: true,
-    message: 'STK push initiated in sandbox mode. Real payment verification requires Daraja setup and secure callback verification.',
-    reference: payment.reference,
-    payment
-  });
-});
-
-app.post('/api/mpesa/callback', async (req, res) => {
-  await ensureDemoUser();
-  const body = req.body || {};
-  const { MerchantRequestID, ResultCode, ResultDesc, CheckoutRequestID } = body;
-
-  if (!MerchantRequestID && !CheckoutRequestID) {
-    return res.status(400).json({ success: false, message: 'Invalid callback payload' });
-  }
-
-  const payment = state.payments.find(
-    item => item.reference === MerchantRequestID || item.id === CheckoutRequestID
-  );
-
-  if (!payment) {
-    return res.status(404).json({ success: false, message: 'Unknown payment reference' });
-  }
-
-  const status = ResultCode === 0 ? 'completed' : 'failed';
-  payment.status = status;
-  payment.result = ResultDesc || 'Processed';
-
-  if (status === 'completed') {
-    const user = state.users[0];
-    user.wallet.balance += Number(payment.amount);
-
-    state.transactions.unshift({
-      id: `tx_${uuidv4()}`,
-      userId: user.id,
-      type: 'deposit',
-      amount: Number(payment.amount),
-      status: 'completed',
-      reference: payment.reference,
-      method: 'M-Pesa',
-      createdAt: new Date().toISOString()
-    });
-  }
-
-  return res.json({ success: true, message: 'Callback processed', payment });
-});
-
-app.post('/api/wallet/withdraw', async (req, res) => {
-  await ensureDemoUser();
-  const { userId, amount, phone } = req.body || {};
-
-  if (!userId || !amount || Number(amount) <= 0) {
-    return res.status(400).json({ error: 'Invalid withdrawal request' });
-  }
-
-  const user = state.users.find(u => u.id === userId);
-  if (!user) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-
-  const value = Number(amount);
-  if (user.wallet.balance < value) {
-    return res.status(400).json({ error: 'Insufficient available balance' });
-  }
-
-  user.wallet.balance -= value;
-  user.wallet.pendingWithdrawals += value;
-
-  const tx = {
-    id: `tx_${uuidv4()}`,
-    userId,
-    type: 'withdrawal',
-    amount: value,
-    status: 'pending_review',
-    reference: `WDR-${Date.now()}`,
-    method: 'M-Pesa',
-    phone,
-    createdAt: new Date().toISOString()
-  };
-
-  state.transactions.unshift(tx);
-  return res.json({ success: true, message: 'Withdrawal request submitted', transaction: tx });
-});
-
-app.listen(PORT, () => {
-  console.log(`SKYWIN API running on http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`SKYWIN practice API listening on port ${PORT}`));

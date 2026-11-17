@@ -1,46 +1,38 @@
-# SKYWIN
+# SKYWIN practice simulation
 
-SKYWIN is a demo Aviator gaming platform starter designed for safe local testing and UI/UX validation. It is not a production casino, license, or real-money payment system. Real M-Pesa flows require Daraja sandbox or production approvals, backend verification, and compliance review.
+SKYWIN is an independent Aviator-style **practice game** for local testing and interface demonstration. It is not the Aviator game of another operator. It does not process real money, deposits, withdrawals, or prizes. Demo points have no cash value.
 
 ## Features
-- User registration and login flow
-- Wallet balance and transaction history
-- Live Aviator-style game card
-- Predictor analytics dashboard
-- Admin overview dashboard
-- M-Pesa sandbox initiation pattern
-- Secure server-side configuration structure
+- Responsive dark-themed React/Vite frontend.
+- Server-managed countdown, flying and crash phases.
+- Crash outcome generated server-side with Node's cryptographic random integer source. The secret crash point is not returned while the round is running.
+- Practice bets and cash-outs validated against server state; the client cannot supply the multiplier or payout.
+- Recent round history and descriptive statistics, with an explicit no-prediction notice.
+- Payment and withdrawal endpoints disabled (HTTP 410).
 
-## Stack
-- React + Vite frontend
-- Express backend API
-- Demo in-memory persistence
-- bcrypt password hashing
-- environment-based config
+## Run locally
 
-## Setup
+Requires Node.js 18 or newer.
 
-1. Install dependencies:
-   npm install
-2. Copy environment file:
-   cp .env.example .env
-3. Start the app:
-   npm run dev
-4. Open the frontend at:
-   http://localhost:5173
+```sh
+npm install
+cp .env.example .env
+npm run dev
+```
 
-## API
-- Health check: http://localhost:4000/api/health
-- Login: POST /api/auth/login
-- Register: POST /api/auth/register
-- Dashboard: GET /api/dashboard
-- Predictor: GET /api/predictor
-- Admin: GET /api/admin/overview
-- Game bet: POST /api/game/bet
-- M-Pesa initiate: POST /api/mpesa/initiate
+Open <http://localhost:5173>. API health: <http://localhost:4000/api/health>.
 
-## Important security notes
-- Never store secret keys in frontend code.
-- Keep Daraja credentials in server environment variables only.
-- Always verify payment callbacks on the backend before crediting wallets.
-- Do not claim legal licensing or real-money operation without proper approvals.
+A practice bet can be placed during the countdown (1–1,000 points, one per round). Cash-out is enabled only during the flight. The server maintains the practice balance and computes the payout. All data is in memory and resets when the API restarts; this is not multi-user or persistent.
+
+## Routes
+- `GET /api/health`
+- `GET /api/dashboard`
+- `GET /api/game/rounds`
+- `POST /api/game/bet` with `{ "amount": 100 }`
+- `POST /api/game/cashout` with `{ "betId": "..." }`
+- `GET /api/predictor`
+
+M-Pesa, deposit, and withdrawal routes are intentionally disabled. No payment callback can credit a balance.
+
+## Scope and production warning
+This code is a local practice simulation, **not** a production gambling platform. It has no durable database, real account authentication, multi-user isolation, regulated game certification, payment processing, or production monitoring. Do not expose it as a real-money game. Any future real-money service requires qualified legal/compliance review, applicable licensing and payment approvals, independent game testing, robust security engineering, and a production architecture. Historical results cannot reliably predict future rounds.
