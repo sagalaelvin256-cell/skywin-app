@@ -40,6 +40,7 @@ const defaultDashboard = {
 
 function App() {
   const [dashboard, setDashboard] = useState(defaultDashboard);
+  const [view, setView] = useState('dashboard');
   const [betAmount, setBetAmount] = useState('250');
   const [autoCashout, setAutoCashout] = useState('2.00');
   const [depositAmount, setDepositAmount] = useState('2000');
@@ -67,18 +68,27 @@ function App() {
     fetchDashboard();
   }, []);
 
-  const predictorSummary = useMemo(() => ({
-    average: dashboard.predictor?.average ?? 0,
-    median: dashboard.predictor?.median ?? 0,
-    highest: dashboard.predictor?.highest ?? 0,
-    lowest: dashboard.predictor?.lowest ?? 0
-  }), [dashboard]);
+  const predictorSummary = useMemo(
+    () => ({
+      average: dashboard.predictor?.average ?? 0,
+      median: dashboard.predictor?.median ?? 0,
+      highest: dashboard.predictor?.highest ?? 0,
+      lowest: dashboard.predictor?.lowest ?? 0
+    }),
+    [dashboard]
+  );
 
   const handleAuth = async () => {
     const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
-    const payload = authMode === 'login'
-      ? { email: authForm.email, password: authForm.password }
-      : { name: authForm.name, email: authForm.email, phone: authForm.phone, password: authForm.password };
+    const payload =
+      authMode === 'login'
+        ? { email: authForm.email, password: authForm.password }
+        : {
+            name: authForm.name,
+            email: authForm.email,
+            phone: authForm.phone,
+            password: authForm.password
+          };
 
     try {
       const res = await fetch(endpoint, {
@@ -90,7 +100,7 @@ function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Authentication failed');
 
-      alert(`${authMode === 'login' ? 'Logged in' : 'Registered'} successfully`);
+      alert(`${authMode === 'login' ? 'Logged in' : 'Registration successful'} successfully`);
       await fetchDashboard();
     } catch (error) {
       alert(error.message);
@@ -122,13 +132,12 @@ function App() {
 
   const handleCashout = async () => {
     try {
-      const activeBet = dashboard.transactions?.find(tx => tx.type === 'bet' && tx.status === 'settled');
       const res = await fetch('/api/game/cashout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: dashboard.user.id,
-          betId: activeBet?.id || 'demo_bet_1',
+          betId: 'demo_bet_1',
           currentMultiplier: Number(dashboard.currentRound?.multiplier || 1.5)
         })
       });
@@ -148,16 +157,13 @@ function App() {
       const res = await fetch('/api/mpesa/initiate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: Number(depositAmount),
-          phone: mpesaPhone
-        })
+        body: JSON.stringify({ amount: Number(depositAmount), phone: mpesaPhone })
       });
 
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Deposit failed');
 
-      alert(`M-Pesa sandbox initiation started. Reference: ${result.reference}`);
+      alert(`M-Pesa sandbox start successful. Reference: ${result.reference}`);
     } catch (error) {
       alert(error.message);
     }
@@ -185,26 +191,157 @@ function App() {
     }
   };
 
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand-wrap">
-          <div className="brand-mark">S</div>
-          <span className="brand-text">SKYWIN</span>
-        </div>
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'game', label: 'Aviator' },
+    { id: 'predictor', label: 'Predictor' },
+    { id: 'wallet', label: 'Wallet' },
+    { id: 'admin', label: 'Admin' }
+  ];
 
-        <nav className="nav">
-          <a href="#dashboard">Dashboard</a>
-          <a href="#game">Aviator</a>
-          <a href="#predictor">Predictor</a>
-          <a href="#wallet">Wallet</a>
-          <a href="#admin">Admin</a>
-        </nav>
+  const renderContent = () => {
+    if (view === 'game') {
+      return (
+        <section className="panel">
+          <div className="section-head">
+            <h3>Aviator Live Round</h3>
+            <span className="pill pill-live">Live</span>
+          </div>
 
-        <button className="ghost-btn">Logout</button>
-      </header>
+          <div className="plane-box">
+            <div className="plane">✈️</div>
+            <div className="multiplier-wrap">
+              <span>Current Multiplier</span>
+              <strong>{Number(dashboard.currentRound?.multiplier || 1.5).toFixed(2)}x</strong>
+            </div>
+          </div>
 
-      <main className="dashboard" id="dashboard">
+          <div className="field-row">
+            <label>
+              Bet Amount
+              <input type="number" value={betAmount} onChange={e => setBetAmount(e.target.value)} />
+            </label>
+            <label>
+              Auto Cash-Out
+              <input type="number" step="0.01" value={autoCashout} onChange={e => setAutoCashout(e.target.value)} />
+            </label>
+          </div>
+
+          <div className="cta-stack">
+            <button className="primary-btn" onClick={handlePlaceBet}>Place Bet</button>
+            <button className="secondary-btn" onClick={handleCashout}>Cash Out</button>
+          </div>
+        </section>
+      );
+    }
+
+    if (view === 'predictor') {
+      return (
+        <section className="panel">
+          <div className="section-head">
+            <h3>Predictor Dashboard</h3>
+            <span className="pill">Historical</span>
+          </div>
+          <div className="stat-grid">
+            <div className="stat-box">
+              <span>Average</span>
+              <strong>{predictorSummary.average.toFixed(2)}x</strong>
+            </div>
+            <div className="stat-box">
+              <span>Median</span>
+              <strong>{predictorSummary.median.toFixed(2)}x</strong>
+            </div>
+            <div className="stat-box">
+              <span>Highest</span>
+              <strong>{predictorSummary.highest.toFixed(2)}x</strong>
+            </div>
+            <div className="stat-box">
+              <span>Lowest</span>
+              <strong>{predictorSummary.lowest.toFixed(2)}x</strong>
+            </div>
+          </div>
+          <p className="note-box">{dashboard.predictor?.message}</p>
+          <div className="mini-list">
+            {(dashboard.predictor?.history || []).slice(0, 5).map(item => (
+              <div key={item.id} className="mini-row">
+                <span>#{item.id}</span>
+                <strong>{item.multiplier.toFixed(2)}x</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    if (view === 'wallet') {
+      return (
+        <section className="panel">
+          <div className="section-head">
+            <h3>Wallet & M-Pesa</h3>
+            <span className="pill">Secure</span>
+          </div>
+          <div className="field-stack">
+            <label>
+              M-Pesa phone
+              <input type="tel" value={mpesaPhone} onChange={e => setMpesaPhone(e.target.value)} />
+            </label>
+            <label>
+              Deposit amount
+              <input type="number" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} />
+            </label>
+            <button className="primary-btn" onClick={handleDeposit}>Initiate STK Push</button>
+            <label>
+              Withdraw amount
+              <input type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value)} />
+            </label>
+            <button className="secondary-btn" onClick={handleWithdraw}>Request Withdrawal</button>
+          </div>
+          <div className="activity-box">
+            <h4>Recent Transactions</h4>
+            {(dashboard.transactions || []).slice(0, 6).map(tx => (
+              <div key={tx.id} className="mini-row">
+                <span>{tx.type}</span>
+                <strong>{tx.amount} KES</strong>
+                <small>{tx.status}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    if (view === 'admin') {
+      return (
+        <section className="panel">
+          <div className="section-head">
+            <h3>Admin Overview</h3>
+            <span className="pill">Protected</span>
+          </div>
+          <div className="stat-grid compact-grid">
+            <div className="stat-box">
+              <span>Users</span>
+              <strong>{dashboard.admin.totalUsers}</strong>
+            </div>
+            <div className="stat-box">
+              <span>Active</span>
+              <strong>{dashboard.admin.activePlayers}</strong>
+            </div>
+            <div className="stat-box">
+              <span>Withdrawals</span>
+              <strong>{dashboard.admin.pendingWithdrawals}</strong>
+            </div>
+          </div>
+          <ul className="admin-list">
+            <li>New KYC review: 12</li>
+            <li>Wallet anomalies flagged: 3</li>
+            <li>Suspicious payment attempts: 1</li>
+          </ul>
+        </section>
+      );
+    }
+
+    return (
+      <>
         <section className="hero-panel">
           <div className="hero-copy">
             <p className="eyebrow">Aviator Gaming Platform</p>
@@ -220,19 +357,18 @@ function App() {
             <strong>KES {dashboard.user.wallet.balance.toLocaleString()}</strong>
             <small>Betting Balance: KES {dashboard.user.wallet.bettingBalance.toLocaleString()}</small>
             <div className="key-actions">
-              <button>Deposit</button>
-              <button className="secondary">Withdraw</button>
+              <button onClick={() => setView('wallet')}>Deposit</button>
+              <button className="secondary" onClick={() => setView('wallet')}>Withdraw</button>
             </div>
           </div>
         </section>
 
         <div className="split-layout">
-          <section className="panel" id="game">
+          <section className="panel">
             <div className="section-head">
               <h3>Aviator Live Round</h3>
               <span className="pill pill-live">Live</span>
             </div>
-
             <div className="plane-box">
               <div className="plane">✈️</div>
               <div className="multiplier-wrap">
@@ -240,31 +376,27 @@ function App() {
                 <strong>{Number(dashboard.currentRound?.multiplier || 1.5).toFixed(2)}x</strong>
               </div>
             </div>
-
             <div className="field-row">
               <label>
                 Bet amount
-                <input type="number" value={betAmount} onChange={(e) => setBetAmount(e.target.value)} />
+                <input type="number" value={betAmount} onChange={e => setBetAmount(e.target.value)} />
               </label>
-
               <label>
                 Auto cash-out
-                <input type="number" step="0.01" value={autoCashout} onChange={(e) => setAutoCashout(e.target.value)} />
+                <input type="number" step="0.01" value={autoCashout} onChange={e => setAutoCashout(e.target.value)} />
               </label>
             </div>
-
             <div className="cta-stack">
               <button className="primary-btn" onClick={handlePlaceBet}>Place Bet</button>
               <button className="secondary-btn" onClick={handleCashout}>Cash Out</button>
             </div>
           </section>
 
-          <section className="panel" id="predictor">
+          <section className="panel">
             <div className="section-head">
               <h3>Predictor Dashboard</h3>
               <span className="pill">Historical</span>
             </div>
-
             <div className="stat-grid">
               <div className="stat-box">
                 <span>Average</span>
@@ -283,66 +415,34 @@ function App() {
                 <strong>{predictorSummary.lowest.toFixed(2)}x</strong>
               </div>
             </div>
-
             <p className="note-box">{dashboard.predictor?.message}</p>
-
-            <div className="mini-list">
-              {(dashboard.predictor?.history || []).slice(0, 5).map(item => (
-                <div key={item.id} className="mini-row">
-                  <span>#{item.id}</span>
-                  <strong>{item.multiplier.toFixed(2)}x</strong>
-                </div>
-              ))}
-            </div>
           </section>
         </div>
 
         <div className="split-layout lower-layout">
-          <section className="panel" id="wallet">
+          <section className="panel">
             <div className="section-head">
-              <h3>Wallet & M-Pesa</h3>
+              <h3>Wallet</h3>
               <span className="pill">Secure</span>
             </div>
-
             <div className="field-stack">
               <label>
                 M-Pesa phone
-                <input type="tel" value={mpesaPhone} onChange={(e) => setMpesaPhone(e.target.value)} />
+                <input type="tel" value={mpesaPhone} onChange={e => setMpesaPhone(e.target.value)} />
               </label>
-
               <label>
                 Deposit amount
-                <input type="number" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} />
+                <input type="number" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} />
               </label>
-
               <button className="primary-btn" onClick={handleDeposit}>Initiate STK Push</button>
-
-              <label>
-                Withdraw amount
-                <input type="number" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} />
-              </label>
-
-              <button className="secondary-btn" onClick={handleWithdraw}>Request Withdrawal</button>
-            </div>
-
-            <div className="activity-box">
-              <h4>Recent Transactions</h4>
-              {(dashboard.transactions || []).slice(0, 5).map(tx => (
-                <div key={tx.id} className="mini-row">
-                  <span>{tx.type}</span>
-                  <strong>{tx.amount} KES</strong>
-                  <small>{tx.status}</small>
-                </div>
-              ))}
             </div>
           </section>
 
-          <section className="panel" id="admin">
+          <section className="panel">
             <div className="section-head">
               <h3>Admin Overview</h3>
               <span className="pill">Protected</span>
             </div>
-
             <div className="stat-grid compact-grid">
               <div className="stat-box">
                 <span>Users</span>
@@ -357,14 +457,33 @@ function App() {
                 <strong>{dashboard.admin.pendingWithdrawals}</strong>
               </div>
             </div>
-
-            <ul className="admin-list">
-              <li>New KYC review: 12</li>
-              <li>Wallet anomalies: 3</li>
-              <li>Suspicious payment attempts: 1</li>
-            </ul>
           </section>
         </div>
+      </>
+    );
+  };
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand-wrap">
+          <div className="brand-mark">S</div>
+          <span className="brand-text">SKYWIN</span>
+        </div>
+
+        <nav className="nav">
+          {navItems.map(item => (
+            <button key={item.id} className={`nav-btn ${view === item.id ? 'active' : ''}`} onClick={() => setView(item.id)}>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <button className="ghost-btn">Logout</button>
+      </header>
+
+      <main className="dashboard">
+        {renderContent()}
 
         <section className="panel auth-panel">
           <div className="section-head">
@@ -382,23 +501,23 @@ function App() {
               <>
                 <label>
                   Full name
-                  <input value={authForm.name} onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })} />
+                  <input value={authForm.name} onChange={e => setAuthForm({ ...authForm, name: e.target.value })} />
                 </label>
                 <label>
                   Phone number
-                  <input value={authForm.phone} onChange={(e) => setAuthForm({ ...authForm, phone: e.target.value })} />
+                  <input value={authForm.phone} onChange={e => setAuthForm({ ...authForm, phone: e.target.value })} />
                 </label>
               </>
             )}
 
             <label>
               Email
-              <input type="email" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} />
+              <input type="email" value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} />
             </label>
 
             <label>
               Password
-              <input type="password" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} />
+              <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
             </label>
 
             <button className="primary-btn" onClick={handleAuth}>{authMode === 'login' ? 'Login' : 'Register'}</button>
