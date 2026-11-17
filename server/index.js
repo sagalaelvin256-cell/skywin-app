@@ -12,23 +12,23 @@ const PORT = Number(process.env.PORT || 4000);
 app.use(cors());
 app.use(express.json());
 
+const createDemoUser = async () => ({
+  id: 'u_demo_1',
+  name: 'Demo Player',
+  email: 'demo@skywin.app',
+  phone: '+254700000001',
+  passwordHash: await bcrypt.hash('Password123!', 10),
+  role: 'user',
+  wallet: {
+    balance: 24500,
+    bettingBalance: 5000,
+    pendingWithdrawals: 0
+  },
+  createdAt: new Date().toISOString()
+});
+
 const state = {
-  users: [
-    {
-      id: 'u_demo_1',
-      name: 'Demo Player',
-      email: 'demo@skywin.app',
-      phone: '+254700000001',
-      passwordHash: bcrypt.hashSync('Password123!', 10),
-      role: 'user',
-      wallet: {
-        balance: 24500,
-        bettingBalance: 5000,
-        pendingWithdrawals: 0
-      },
-      createdAt: new Date().toISOString()
-    }
-  ],
+  users: [],
   transactions: [
     {
       id: 'tx_1',
@@ -71,6 +71,19 @@ const state = {
   }
 };
 
+const sanitizeUser = (user) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  phone: user.phone,
+  role: user.role,
+  wallet: {
+    balance: user.wallet.balance,
+    bettingBalance: user.wallet.bettingBalance,
+    pendingWithdrawals: user.wallet.pendingWithdrawals
+  }
+});
+
 const buildRoundHistory = () => [
   { id: 4012, multiplier: 1.45, createdAt: '2026-11-17T08:10:00Z' },
   { id: 4013, multiplier: 2.31, createdAt: '2026-11-17T08:11:00Z' },
@@ -103,28 +116,23 @@ const predictorStats = () => {
     lowest: Number(lowest.toFixed(2)),
     volatility: Number(((highest - lowest) / average).toFixed(2)),
     message:
-      'Aviator outcomes are random. Historical data may show patterns in frequency, but it cannot guarantee or reliably predict the next crash multiplier.'
+      'Aviator outcomes are random. Historical data can show frequency patterns, but it cannot guarantee or reliably predict the next crash multiplier.'
   };
 };
 
-const getUserPublicProfile = (user) => ({
-  id: user.id,
-  name: user.name,
-  email: user.email,
-  phone: user.phone,
-  role: user.role,
-  wallet: {
-    balance: user.wallet.balance,
-    bettingBalance: user.wallet.bettingBalance,
-    pendingWithdrawals: user.wallet.pendingWithdrawals
+const ensureDemoUser = async () => {
+  if (state.users.length === 0) {
+    state.users.push(await createDemoUser());
   }
-});
+};
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  await ensureDemoUser();
   res.json({ ok: true, app: 'SKYWIN', mode: 'demo', status: 'online' });
 });
 
 app.post('/api/auth/register', async (req, res) => {
+  await ensureDemoUser();
   const { name, email, phone, password } = req.body || {};
 
   if (!name || !email || !phone || !password) {
@@ -132,7 +140,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   const exists = state.users.some(
-    user => user.email.toLowerCase() === email.toLowerCase() || user.phone === phone
+    user => user.email.toLowerCase() === String(email).toLowerCase() || user.phone === phone
   );
 
   if (exists) {
@@ -155,14 +163,11 @@ app.post('/api/auth/register', async (req, res) => {
   };
 
   state.users.push(user);
-
-  return res.status(201).json({
-    message: 'Registration successful',
-    user: getUserPublicProfile(user)
-  });
+  return res.status(201).json({ message: 'Registration successful', user: sanitizeUser(user) });
 });
 
 app.post('/api/auth/login', async (req, res) => {
+  await ensureDemoUser();
   const { email, password } = req.body || {};
 
   if (!email || !password) {
@@ -177,36 +182,34 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
-  const passwordMatches = await bcrypt.compare(password, user.passwordHash);
-
-  if (!passwordMatches) {
+  const matches = await bcrypt.compare(password, user.passwordHash);
+  if (!matches) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
-  return res.json({
-    message: 'Login successful',
-    user: getUserPublicProfile(user)
-  });
+  return res.json({ message: 'Login successful', user: sanitizeUser(user) });
 });
 
-app.get('/api/dashboard', (req, res) => {
+app.get('/api/dashboard', async (req, res) => {
+  await ensureDemoUser();
   const user = state.users[0];
-  const currentRound = state.rounds[0];
 
   res.json({
-    user: getUserPublicProfile(user),
-    currentRound,
+    user: sanitizeUser(user),
+    currentRound: state.rounds[0],
     predictor: predictorStats(),
     transactions: state.transactions.slice(0, 6),
     admin: state.admin
   });
 });
 
-app.get('/api/predictor', (req, res) => {
+app.get('/api/predictor', async (req, res) => {
+  await ensureDemoUser();
   res.json(predictorStats());
 });
 
-app.get('/api/admin/overview', (req, res) => {
+app.get('/api/admin/overview', async (req, res) => {
+  await ensureDemoUser();
   res.json({
     users: state.admin.totalUsers,
     activePlayers: state.admin.activePlayers,
@@ -219,14 +222,13 @@ app.get('/api/admin/overview', (req, res) => {
   });
 });
 
-app.get('/api/game/rounds', (req, res) => {
-  res.json({
-    current: state.rounds[0],
-    history: buildRoundHistory()
-  });
+app.get('/api/game/rounds', async (req, res) => {
+  await ensureDemoUser();
+  res.json({ current: state.rounds[0], history: buildRoundHistory() });
 });
 
-app.post('/api/game/bet', (req, res) => {
+app.post('/api/game/bet', async (req, res) => {
+  await ensureDemoUser();
   const { userId, amount, autoCashout, predictedMultiplier } = req.body || {};
 
   if (!userId || !amount || Number(amount) <= 0) {
@@ -238,17 +240,18 @@ app.post('/api/game/bet', (req, res) => {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  if (user.wallet.balance < Number(amount)) {
+  const value = Number(amount);
+  if (user.wallet.balance < value) {
     return res.status(400).json({ error: 'Insufficient wallet balance' });
   }
 
-  user.wallet.balance -= Number(amount);
-  user.wallet.bettingBalance += Number(amount);
+  user.wallet.balance -= value;
+  user.wallet.bettingBalance += value;
 
   const bet = {
     id: `bet_${uuidv4()}`,
     userId,
-    amount: Number(amount),
+    amount: value,
     autoCashout: autoCashout ? Number(autoCashout) : null,
     predictedMultiplier: predictedMultiplier ? Number(predictedMultiplier) : null,
     status: 'active',
@@ -258,20 +261,21 @@ app.post('/api/game/bet', (req, res) => {
 
   state.bets.unshift(bet);
 
-  return res.status(201).json({
-    message: 'Bet placed successfully',
-    bet
-  });
+  return res.status(201).json({ message: 'Bet placed successfully', bet });
 });
 
-app.post('/api/game/cashout', (req, res) => {
+app.post('/api/game/cashout', async (req, res) => {
+  await ensureDemoUser();
   const { userId, betId, currentMultiplier } = req.body || {};
 
   if (!userId || !betId || !currentMultiplier) {
     return res.status(400).json({ error: 'Cash-out requires userId, betId, and currentMultiplier' });
   }
 
-  const bet = state.bets.find(item => item.id === betId && item.userId === userId && item.status === 'active');
+  const bet = state.bets.find(
+    item => item.id === betId && item.userId === userId && item.status === 'active'
+  );
+
   if (!bet) {
     return res.status(404).json({ error: 'Active bet not found' });
   }
@@ -301,11 +305,13 @@ app.post('/api/game/cashout', (req, res) => {
   return res.json({ success: true, message: 'Cash-out processed', payout });
 });
 
-app.get('/api/wallet/history', (req, res) => {
+app.get('/api/wallet/history', async (req, res) => {
+  await ensureDemoUser();
   res.json({ transactions: state.transactions });
 });
 
-app.post('/api/wallet/deposit', (req, res) => {
+app.post('/api/wallet/deposit', async (req, res) => {
+  await ensureDemoUser();
   const { amount, method = 'M-Pesa', phone } = req.body || {};
 
   if (!amount || Number(amount) <= 0) {
@@ -326,14 +332,11 @@ app.post('/api/wallet/deposit', (req, res) => {
   };
 
   state.transactions.unshift(tx);
-
-  return res.status(201).json({
-    message: 'Deposit initiated',
-    transaction: tx
-  });
+  return res.status(201).json({ message: 'Deposit initiated', transaction: tx });
 });
 
-app.post('/api/mpesa/initiate', (req, res) => {
+app.post('/api/mpesa/initiate', async (req, res) => {
+  await ensureDemoUser();
   const { amount, phone } = req.body || {};
 
   if (!amount || !phone) {
@@ -355,13 +358,14 @@ app.post('/api/mpesa/initiate', (req, res) => {
 
   return res.json({
     success: true,
-    message: 'STK push initiated in sandbox mode. Real payment verification requires Daraja setup.',
+    message: 'STK push initiated in sandbox mode. Real payment verification requires Daraja setup and secure callback verification.',
     reference: payment.reference,
     payment
   });
 });
 
-app.post('/api/mpesa/callback', (req, res) => {
+app.post('/api/mpesa/callback', async (req, res) => {
+  await ensureDemoUser();
   const body = req.body || {};
   const { MerchantRequestID, ResultCode, ResultDesc, CheckoutRequestID } = body;
 
@@ -377,11 +381,7 @@ app.post('/api/mpesa/callback', (req, res) => {
     return res.status(404).json({ success: false, message: 'Unknown payment reference' });
   }
 
-  let status = 'completed';
-  if (ResultCode !== 0) {
-    status = 'failed';
-  }
-
+  const status = ResultCode === 0 ? 'completed' : 'failed';
   payment.status = status;
   payment.result = ResultDesc || 'Processed';
 
@@ -404,7 +404,8 @@ app.post('/api/mpesa/callback', (req, res) => {
   return res.json({ success: true, message: 'Callback processed', payment });
 });
 
-app.post('/api/wallet/withdraw', (req, res) => {
+app.post('/api/wallet/withdraw', async (req, res) => {
+  await ensureDemoUser();
   const { userId, amount, phone } = req.body || {};
 
   if (!userId || !amount || Number(amount) <= 0) {
@@ -437,7 +438,6 @@ app.post('/api/wallet/withdraw', (req, res) => {
   };
 
   state.transactions.unshift(tx);
-
   return res.json({ success: true, message: 'Withdrawal request submitted', transaction: tx });
 });
 
